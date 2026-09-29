@@ -34,6 +34,8 @@ import { AudioVibrationService } from '../AudioVibrationService';
 import { AdaptiveBitrateService } from './AdaptiveBitrateService';
 import { NetworkBoostService } from '../network/NetworkBoostService';
 import { BandwidthProbeService } from '../network/BandwidthProbeService';
+import { ConnectionPathInfo, ConnectionPathService } from '../network/ConnectionPathService';
+import { SettingsService } from '../SettingsService';
 import { Ds5TouchpadInputSink } from '../input/Ds5TouchpadGestureHandler';
 import { onClipboardDataReceived } from '../jni/ClipboardBridge';
 import { sampleDisplayBrightness, MeasuredBrightnessProfile } from './BrightnessSampler';
@@ -474,6 +476,7 @@ export class StreamingSession implements Ds5TouchpadInputSink {
   private appId: number = 0;
   private config: StreamConfig | null = null;
   private userBitrateLimitKbps: number = 0;
+  private connectionPathInfo: ConnectionPathInfo | null = null;
   private surfaceId: string = '';
   private isRunning: boolean = false;
   private networkBoostGeneration: number | null = null;
@@ -680,7 +683,7 @@ export class StreamingSession implements Ds5TouchpadInputSink {
     this.computerId = computerId;
     this.appId = appId;
     this.config = config;
-    this.userBitrateLimitKbps = config.bitrate;
+    this.connectionPathInfo = null;
     this.surfaceId = surfaceId;
     this.displayGuid = displayGuid || '';
     this.useVdd = useVdd || false;
@@ -697,7 +700,6 @@ export class StreamingSession implements Ds5TouchpadInputSink {
     this.registerBrightnessProbe();
 
     Logger.info('StreamingSession', `开始串流: computer=${computerId}, app=${appId}`);
-    Logger.info('StreamingSession', `配置: ${config.width}x${config.height}@${config.fps}fps, ${config.bitrate}kbps, ${config.codec}`);
     Logger.info('StreamingSession', `HDR: hdr=${config.hdr}, hdrMode=${config.hdrMode}, colorRange=${config.colorRange}`);
     if (this.displayGuid || this.useVdd) {
       Logger.info('StreamingSession', `显示器: displayGuid=${this.displayGuid}, useVdd=${this.useVdd}`);
@@ -705,6 +707,12 @@ export class StreamingSession implements Ds5TouchpadInputSink {
 
     try {
       await this.resolveComputer(computerId, context);
+      this.connectionPathInfo = await ConnectionPathService.inspect(this.selectedAddress);
+      const remoteApplied = await SettingsService.getInstance().applyRemoteStreamSettings(config,
+        this.connectionPathInfo.path);
+      this.userBitrateLimitKbps = config.bitrate;
+      Logger.info('StreamingSession', `配置: path=${this.connectionPathInfo.path}, remote=${remoteApplied}, ` +
+        `${config.width}x${config.height}@${config.fps}fps, ${config.bitrate}kbps, ${config.codec}`);
       // USB/IP 反向隧道：OTG 手柄直通主机。必须先于本地 USB 驱动标记排除，
       // 异步进行（含权限弹窗与主机能力查询），不阻塞会话启动
       if (this.computer && this.nvHttp) {
@@ -1369,7 +1377,8 @@ export class StreamingSession implements Ds5TouchpadInputSink {
     }
     try {
       const decision = await BandwidthProbeService.getInstance().resolveInitialBitrate(
-        this.computerId, this.selectedAddress, this.config.bitrate, this.nvHttp);
+        this.computerId, this.selectedAddress, this.config.bitrate, this.nvHttp,
+        this.connectionPathInfo || undefined);
       this.config.bitrate = decision.bitrateKbps;
       Logger.info('StreamingSession', 'StreamingSession: 初始码率路径=' + decision.path + ', userLimit=' +
         decision.userLimitKbps.toString() + 'kbps, effective=' + decision.bitrateKbps.toString() +
