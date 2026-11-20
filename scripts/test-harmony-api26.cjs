@@ -525,6 +525,9 @@ function sessionFixture(socketsAvailable = true) {
       },
       registerStreamingFlows() {}
     }) },
+    // 本地分支新增：启动时会探测链路并套用远程串流设置，测试里固定为 LAN + 不覆盖
+    ConnectionPathService: { inspect: async () => ({ path: 'lan' }) },
+    SettingsService: { getInstance: () => ({ applyRemoteStreamSettings: async () => false }) },
     MoonBridge: { getStreamSocketFds: () => socketsAvailable ? flows() : null }
   }, ['StreamingSession']);
   const session = Object.assign(Object.create(StreamingSession.prototype), {
